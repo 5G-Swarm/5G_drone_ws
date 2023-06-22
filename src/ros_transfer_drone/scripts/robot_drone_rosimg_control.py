@@ -10,11 +10,14 @@ from sensor_msgs.msg import Image, Imu, NavSatFix
 from geometry_msgs.msg import TwistStamped,Twist
 from nav_msgs.msg import Odometry
 from proto.python_out import drone_state_msgs_pb2,drone_cmd_msgs_pb2
-
+from mavros_msgs.msg import PositionTarget, State, HomePosition
+from mavros_msgs.srv import CommandBool, CommandTOL, SetMode
 from informer import Informer
 
 gps_time = None
 local_time = None
+mavros_state = State()
+setModeServer = rospy.ServiceProxy('/mavros/set_mode', SetMode)
 
 def parse_cmd(message, robot_id):
     global drone_vel_pub
@@ -32,6 +35,11 @@ def parse_cmd(message, robot_id):
     drone_vel.angular.z = cmd.wz
     print("rotate")
     drone_vel_pub.publish(drone_vel)
+    if flag=="LANDING":
+        if mavros_state.mode != "AUTO.LAND":
+            setModeServer(custom_mode="AUTO.LAND")
+            # drone_vel_pub.publish(drone_vel)
+            print("landing")
 
 class Client(Informer):
     def send_img(self, message):
@@ -46,7 +54,7 @@ class Client(Informer):
 def callback_syn(ros_gps_pos,ros_gps_vel,ros_imu,ros_local_vel):
     global ifm, gps_time, local_time,pipeline
     # global drone_syn_pub
-    print("begin")
+    # print("begin")
     gps_imu = drone_state_msgs_pb2.DroneState()
     # drone_syn = DroneSyn()
     # temp = ""
@@ -58,7 +66,7 @@ def callback_syn(ros_gps_pos,ros_gps_vel,ros_imu,ros_local_vel):
     # print(ros_gps_pos.header.stamp.secs, ros_gps_pos.header.stamp.nsecs, gps_time)
     # gps_time_bytes = str(gps_time).ljust(19, "0").encode()
     # print(gps_time_bytes)
-    print("gps_time_compare",gps_time, int(local_time*1000000000))
+    # print("gps_time_compare",gps_time, int(local_time*1000000000))
 
     gps_imu.gps.lon_x = ros_gps_pos.longitude
     gps_imu.gps.lat_y = ros_gps_pos.latitude
@@ -79,7 +87,7 @@ def callback_syn(ros_gps_pos,ros_gps_vel,ros_imu,ros_local_vel):
     sent_data = gps_imu.SerializeToString()
     # drone_syn_pub.publish(drone_syn)
     ifm.send_state(ts_bytes + sent_data)
-    print("gpsts_bytes",local_time,ts_bytes)
+    # print("gpsts_bytes",local_time,ts_bytes)
     '''
     frames = pipeline.wait_for_frames()
     color_frame = frames.get_color_frame()
@@ -94,7 +102,7 @@ def callback_syn(ros_gps_pos,ros_gps_vel,ros_imu,ros_local_vel):
     data = jpeg.tobytes()
     ifm.send_img(ts_bytes + data)
     '''
-    print("finish",gps_imu.gps.lon_x)
+    print("gps_imu",gps_imu.gps.lon_x)
     # cv2.imshow('img', img)
     # cv2.waitKey(2)
     ######
@@ -105,7 +113,7 @@ def callback_img(ros_img):
     local_time = time.time()
     if local_time is None: return
     ts_bytes = str(int(local_time*1000000000)).ljust(19, "0").encode()
-    print("ts_bytes",ts_bytes)
+    print("img_ts_bytes",ts_bytes)
     img = np.ndarray(shape=(480, 640, 3), dtype=np.dtype("uint8"), buffer=ros_img.data)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     _, jpeg = cv2.imencode('.jpg', img)
